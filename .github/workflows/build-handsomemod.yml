@@ -62,15 +62,13 @@ jobs:
 
     - name: Install feeds
       run: cd handsomemod && ./scripts/feeds install -a 
-
     - name: SSH connection to Actions
-  uses: P3TERX/ssh2actions@main
-  if: (github.event.inputs.ssh == 'true' || contains(github.event.action, 'ssh')) || true
-  env:
-    TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-    TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-    
+      uses: P3TERX/ssh2actions@main
+      if: always()
+
     - name: Download package
+    
+    
       id: package
       run: |
         cd handsomemod
