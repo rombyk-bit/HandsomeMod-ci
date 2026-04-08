@@ -39,8 +39,6 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
-    - name: Cleanup Disk
-      uses: curoky/cleanup-disk-action@v2.0
           
     - name: Checkout
       uses: actions/checkout@master
@@ -66,9 +64,12 @@ jobs:
       run: cd handsomemod && ./scripts/feeds install -a 
 
     - name: SSH connection to Actions
-      uses: HandsomeYingyan/debugger-action@master
-      if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
-
+  uses: P3TERX/ssh2actions@main
+  if: (github.event.inputs.ssh == 'true' || contains(github.event.action, 'ssh')) || true
+  env:
+    TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+    
     - name: Download package
       id: package
       run: |
