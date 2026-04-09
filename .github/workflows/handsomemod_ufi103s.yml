@@ -118,5 +118,5 @@ jobs:
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: HandsomeMod_firmware
-        path: $ {{ env.FIRMWARE }}
+        path: ${{ env.FIRMWARE }}
         
