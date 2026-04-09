@@ -22,7 +22,7 @@ on:
     types: [started]
 
 env:
-  REPO_URL: https://github.com
+  REPO_URL: https://github.com/HandsomeMod/HandsomeMod.git
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
