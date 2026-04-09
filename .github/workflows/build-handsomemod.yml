@@ -10,21 +10,19 @@ name: Build HandsomeMod
 
 on:
   repository_dispatch:
-    types: helloworld
+    types: [helloworld]
   release:
-    types: published
+    types: [published]
   push:
     branches:
       - master
     paths:
       - '.config'
-#  schedule:
-#    - cron: 0 8 * * 5
   watch:
-    types: started
+    types: [started]
 
 env:
-  REPO_URL: https://github.com/HandsomeMod/HandsomeMod
+  REPO_URL: https://github.com
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
@@ -39,9 +37,9 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
-          
+    # Обновлено до v4
     - name: Checkout
-      uses: actions/checkout@master
+      uses: actions/checkout@v4
 
     - name: Initialization environment
       env:
@@ -62,13 +60,12 @@ jobs:
 
     - name: Install feeds
       run: cd handsomemod && ./scripts/feeds install -a 
+
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@main
       if: always()
 
     - name: Download package
-    
-    
       id: package
       run: |
         cd handsomemod
@@ -83,14 +80,15 @@ jobs:
         cd handsomemod
         echo -e "$(nproc) thread compile"
         make -j$(nproc) || make -j1 || make -j1 V=s
-        echo "::set-output name=status::success"
+        echo "status=success" >> $GITHUB_OUTPUT
 
+    # Обновлено до v4
     - name: Upload bin directory
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@v4
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       with:
         name: HandsomeMod_bin
-        path: HandsomeMod/bin
+        path: handsomemod/bin
 
     - name: Organize files
       id: organize
@@ -101,8 +99,9 @@ jobs:
         echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
+    # Обновлено до v4
     - name: Upload firmware directory
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: HandsomeMod_firmware
