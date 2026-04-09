@@ -19,7 +19,7 @@ on:
       - 'qcom-msm8916-ufi103s.dts'
 
 env:
-  REPO_URL: https://github.com
+  REPO_URL: https://github.com/HandsomeMod/HandsomeMod.git
   REPO_BRANCH: master
   CONFIG_FILE: .config
   SSH_ACTIONS: true
