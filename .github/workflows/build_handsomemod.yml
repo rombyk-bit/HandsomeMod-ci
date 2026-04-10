@@ -6,21 +6,25 @@
 # Blog: https://p3terx.com
 #=================================================
 
-name: Build HandsomeMod UFI103S
+name: Build HandsomeMod
 
 on:
   repository_dispatch:
-  workflow_dispatch:
+    types: [helloworld]
+  release:
+    types: [published]
   push:
     branches:
       - master
     paths:
       - '.config'
-      - 'qcom-msm8916-ufi103s.dts'
+  watch:
+    types: [started]
 
 env:
-  REPO_URL: https://github.com/HandsomeMod/HandsomeMod.git
+  REPO_URL: https://github.com
   REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
   SSH_ACTIONS: true
   UPLOAD_BIN_DIR: false
@@ -33,6 +37,7 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
+    # Обновлено до v4
     - name: Checkout
       uses: actions/checkout@v4
 
@@ -49,31 +54,7 @@ jobs:
  
     - name: Clone source code
       run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH handsomemod
-
-    - name: Inject Custom DTS and Profile
-      run: |
-        # Создаем структуру папок для DTS в ядре
-        mkdir -p handsomemod/target/linux/msm89xx/files/arch/arm/boot/dts/
-        
-        # Копируем ваш DTS файл (он должен лежать в корне вашего репозитория)
-        if [ -f qcom-msm8916-ufi103s.dts ]; then
-          cp qcom-msm8916-ufi103s.dts handsomemod/target/linux/msm89xx/files/arch/arm/boot/dts/
-        fi
-
-        # Добавляем профиль устройства в msm8916.mk
-        cat <<EOF >> handsomemod/target/linux/msm89xx/image/msm8916.mk
-
-        define Device/ufi103s
-          DEVICE_TITLE := UFI103S MSM8916 Stick
-          DEVICE_DTS := qcom-msm8916-ufi103s
-          \$(Device/msm8916-stick)
-        endef
-        TARGET_DEVICES += ufi103s
-        EOF
-
-        # Если файл .config существует в вашем репозитории, копируем его
-        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE handsomemod/.config
-
+      
     - name: Update feeds
       run: cd handsomemod && ./scripts/feeds update -a
 
@@ -82,7 +63,7 @@ jobs:
 
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@main
-      if: env.SSH_ACTIONS == 'true' || contains(github.event.action, 'ssh')
+      if: always()
 
     - name: Download package
       id: package
@@ -98,21 +79,27 @@ jobs:
       run: |
         cd handsomemod
         echo -e "$(nproc) thread compile"
-        # Пытаемся собрать в многопотоке, если ошибка — собираем в один поток для логов
         make -j$(nproc) || make -j1 || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
+    # Обновлено до v4
+    - name: Upload bin directory
+      uses: actions/upload-artifact@v4
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+      with:
+        name: HandsomeMod_bin
+        path: handsomemod/bin
+
     - name: Organize files
       id: organize
-      if: steps.compile.outputs.status == 'success' && !cancelled()
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
-        # Переходим в папку с собранными образами
-        cd handsomemod/bin/targets/msm89xx/default || cd handsomemod/bin/targets/*/*
+        cd handsomemod/bin/targets/*/*
         rm -rf packages
-        # Записываем путь в переменную окружения
-        echo "FIRMWARE=$(pwd)" >> $GITHUB_ENV
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
+    # Обновлено до v4
     - name: Upload firmware directory
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
