@@ -1,0 +1,114 @@
+# =====================================================================================================
+# https://github.com/ХэндомYingyan/ХэндомоМод-чи
+# Описание: Создать HandsomeMod с помощью GitHub Actions
+# Лицензия: MIT
+# Автор: P3TERX
+# Блог: https://p3terx.com
+# =====================================================================================================
+
+имя: Build HandsomeMod UFI103S
+
+onна:
+  repository_dispatch :
+  workflow_dispatch :
+  Толчок:
+    филиалы :
+      - мастер
+    Пути :
+      - ''.config "
+      - ' qcom-msm8916-ufi103s.dts "
+
+envv:
+  REPO_URL : https://github.com/HandsomeMod/HandsomeMod.git
+  REPO_BRANCH : мастер
+  CONFIG_FILE : .config
+  SSH_ACTIONS : true
+  ЗАГРУЗАТЬ_BIN_DIR : false
+  ЗАГРУЗИТЬ_ПРОТЕЧНОЕ WARE : true
+  TZ : Азия/Шанхай
+
+Вакансии :
+  Строить :
+    пробеги : Бунту-22.04
+    если : github.event.repository.owner.id == github.event.sender.id
+
+    Шаги :
+    - имя : Регистрация
+      использует : action/checkout@v4
+
+    - название: среда инициализации
+      envv:
+        DEBIAN_FRONTEND : неинтерактивный
+      run : |
+        sudorm -rf /etc/apt/sources.list.d/* /usr/share/dotnet/sur/lacal/lib/android /opt/ghc
+        sudo -E apt-get -qq обновление
+        sudo -E apt-get-qq установить сборку-основную асцидок бинутис bzip2 gawk gettext git libncurses5-dev libz-dev патч unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilb p7zip
+        sudo -E apt-get -qq автосъем --чистка
+        sudo -E apt-get -qq чистый
+        sudo timedatectl графика-график "$TZ"
+ 
+    - имя : Код источника клона
+      run : git клон -- глубина 1 $REPO_URL -b $REPO_BRANCH handssomemod
+
+    - имя : Введите Custom DTS и профиль
+      run : |
+        #рёпальмовское ртвек ДЦП в ядре
+        mkdir -p красивый/таргет/linux/msm89xx/files/arch/arm/boot/dts/
+        
+        #Коружный дЦКах (ноээлектевет в корнее)
+        если [ -f qcom-msm8916-ufi103s.dts ]; то
+          cp qcom-msm8916-ufi103s.dts handssomemod/inux/msm89xx/files/arch/arm/boot/dts/
+        f
+        # добальямец лзя лец. в мссм8916.мк
+        кошка <<EOF >> красавчик/таргет/линук/мсм89хс/изображение/мсм8916.мк
+        определить устройство/ufi103s
+          УСТРОЙСТВО_ЗВУЧАЕМОСТЬ := UFI103S MSM8916 Клюшка
+          УСТРОЙСТВО_DTS := qcom-msm8916-ufi103s
+          \$(Устройство/msm8916-плитка)
+        Эндеф
+        TARGET_DEVICES += ufi103s
+        EOF
+        #/.конфигурка в решоноксахт, коп ширетворка Ем
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE handssomemod/.config
+    - имя : Обновление каналы
+      run : cd handssomemod && ./scripts/feeds update -a
+
+    - имя : Установить каналы
+      run : cd handssomemod && ./scripts/feeds install -a 
+
+    - имя : SSH подключение к действию
+      использует : P3TERX/ssh2actions@main
+      если : env.SSH_ACTIONS == 'правда' || содержит(github.event.action, 'ssh')
+
+    - имя : Скачать пакет
+      id : пакет
+      run : |
+        CD красивый кумир
+        сделать Defconfig
+        сделать скачать -j8
+        найти dl -размер -1024c -execls -l {} \;
+        найти dl -size -1024c -exec rm -f {} \;
+    - имя : Компиляция прошивки
+      id : компиляция
+      run : |
+        CD красивый кумир
+        эхо-э "$(nproc) стрединый компил"
+        # Пхта СРич в многолетки, сырась ем вафлогазо
+        сделать -j$(nproc) || сделать -j1 || сделать -j1 V=s
+        эхо "статус=успех" >> $GITHUB_OUTPUT
+    - имя : Организовать файлы
+      id : организовать
+      если : step.compile.outputs.status == 'успех' && ! отменено()
+      run : |
+        # 9001 г. вимкулым сфексумами
+        cd красивый/би-сингла/msm89xx/default || exclusivesomed/bin/targets/**
+        пакеты rm -rf
+        #За ПавломАВСЦовичаляция
+        эхо "FIRMWARE=$(pwd)" >> $GITHUB_ENV
+        эхо "статус=успех" >> $GITHUB_OUTPUT
+    - имя : Загрузить каталог прошивки
+      использует : действия/загрузить-artifact@v4
+      если : step.organize.outputs.status == 'успех' && ! отменено()
+      с :
+        имя : HandsomeMod_firmware
+        Путь : ${{ env. ПРОВЕРКА }}
