@@ -9,7 +9,7 @@ on:
       - '.config'
 
 env:
-  REPO_URL: https://github.com
+  REPO_URL: https://github.com/HandsomeYingyan/HandsomeMod.git
   REPO_BRANCH: master
   TZ: Europe/Madrid
 
