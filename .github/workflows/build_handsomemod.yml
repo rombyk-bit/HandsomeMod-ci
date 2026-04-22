@@ -18,6 +18,7 @@ on:
       - '.config'
 
 env:
+  # Твоя ссылка на репозиторий
   REPO_URL: https://github.com/HandsomeMod/HandsomeMod.git
   REPO_BRANCH: master
   CONFIG_FILE: .config
@@ -27,6 +28,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
     - name: Checkout
@@ -55,22 +57,31 @@ jobs:
     - name: Inject UFI103S DTS
       run: |
         cd handsomemod
-        # Создаем структуру папок внутри склонированного репозитория
+        # Создаем путь для DTS и подменяем файл
         mkdir -p target/linux/msm89xx/files/arch/arm64/boot/dts/qcom/
         if [ -f "../ufi103s.dts" ]; then
-          # Подменяем стандартный файл uz801 твоим ufi103s.dts
           cp ../ufi103s.dts target/linux/msm89xx/files/arch/arm64/boot/dts/qcom/msm8916-uz801.dts
           echo "DTS injected successfully"
         else
-          echo "Error: ufi103s.dts not found in repository root!"
+          echo "Error: ufi103s.dts not found!"
           exit 1
         fi
 
     - name: Load custom configuration
       run: |
-        # Копируем твой .config в папку сборки
-        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE handsomemod/.config
         cd handsomemod
+        rm -f .config
+        # Принудительно подсовываем твой .config и форсируем архитектуру msm89xx
+        if [ -f "../.config" ]; then
+          cp "../.config" .config
+        fi
+        
+        # Удаляем следы MIPS/ath79 и добавляем ARM64
+        sed -i '/CONFIG_TARGET_ath79/d' .config
+        echo "CONFIG_TARGET_msm89xx=y" >> .config
+        echo "CONFIG_TARGET_msm89xx_msm8916=y" >> .config
+        echo "CONFIG_TARGET_msm89xx_msm8916_DEVICE_yiming-uz801v3=y" >> .config
+        
         make defconfig
 
     - name: Download package
@@ -84,6 +95,7 @@ jobs:
       run: |
         cd handsomemod
         echo -e "$(nproc) thread compile"
+        # Сборка. Если упадет - покажет подробный лог (V=s)
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -92,15 +104,15 @@ jobs:
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         mkdir -p firmware_bin
-        # Собираем все прошивки из папки bin
-        find handsomemod/bin/targets/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" \) -exec cp {} firmware_bin/ \;
+        # Собираем прошивки именно из папки msm89xx
+        find handsomemod/bin/targets/msm89xx/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" \) -exec cp {} firmware_bin/ \; || true
         echo "FIRMWARE=$PWD/firmware_bin" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    - name: Upload firmware
+    - name: Upload firmware directory
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: HandsomeMod_ufi103s_firmware
+        name: HandsomeMod_UFI103S_ARM64
         path: ${{ env.FIRMWARE }}/*
         
