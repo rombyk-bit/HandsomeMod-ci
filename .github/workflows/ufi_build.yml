@@ -1,0 +1,114 @@
+name: Build HandsomeMod UFI103S
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - '.config'
+
+env:
+  REPO_URL: https://github.com
+  REPO_BRANCH: master
+  TZ: Europe/Madrid
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    if: github.event.repository.owner.id == github.event.sender.id
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler antlr3 gperf swig python3-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+ 
+    - name: Clone source code
+      run: git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} handsomemod
+      
+    - name: Update and Install feeds
+      run: |
+        cd handsomemod
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Inject UFI103S DTS
+      run: |
+        # Путь куда кладем DTS
+        DTS_PATH="handsomemod/target/linux/msm89xx/files/arch/arm64/boot/dts/qcom"
+        mkdir -p $DTS_PATH
+        if [ -f "ufi103s.dts" ]; then
+          cp -f "ufi103s.dts" "$DTS_PATH/msm8916-uz801.dts"
+          echo "✅ DTS файл успешно внедрен"
+        else
+          echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: ufi103s.dts не найден в корне репозитория!"
+          # Не выходим с ошибкой, если ты хочешь использовать стандартный
+        fi
+
+    - name: Load custom configuration
+      run: |
+        cd handsomemod
+        # Проверяем наличие .config в корне репозитория
+        if [ -f "../.config" ]; then
+          cp -f "../.config" .config
+          echo "✅ Использован твой .config"
+        else
+          echo "⚠️ .config не найден, создаю новый"
+          touch .config
+        fi
+        
+        # Удаляем старые таргеты, если они были в конфиге
+        sed -i '/CONFIG_TARGET_ath79/d' .config || true
+        sed -i '/CONFIG_TARGET_msm89xx/d' .config || true
+        
+        # Принудительно выставляем таргет для UFI103S
+        {
+          echo "CONFIG_TARGET_msm89xx=y"
+          echo "CONFIG_TARGET_msm89xx_msm8916=y"
+          echo "CONFIG_TARGET_msm89xx_msm8916_DEVICE_yiming-uz801v3=y"
+        } >> .config
+        
+        # Генерируем финальный конфиг со всеми зависимостями
+        make defconfig
+
+    - name: Download package
+      run: |
+        cd handsomemod
+        make download -j8
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile the firmware
+      id: compile
+      run: |
+        cd handsomemod
+        echo -e "$(nproc) thread compile"
+        # Сборка. Если упадет - покажет лог (V=s)
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Organize files
+      id: organize
+      if: steps.compile.outputs.status == 'success' && !cancelled()
+      run: |
+        mkdir -p firmware_bin
+        # Ищем готовые файлы в директории msm89xx
+        find handsomemod/bin/targets/msm89xx/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" -o -name "*.gz" \) -exec cp {} firmware_bin/ \; || true
+        echo "FIRMWARE=$PWD/firmware_bin" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload firmware directory
+      uses: actions/upload-artifact@v4
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: HandsomeMod_UFI103S_ARM64
+        path: ${{ env.FIRMWARE }}/*
