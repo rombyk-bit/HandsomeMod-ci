@@ -9,7 +9,7 @@ on:
       - '.config'
 
 env:
-  REPO_URL: https://github.com/HandsomeYingyan/HandsomeMod.git
+  REPO_URL: https://github.com
   REPO_BRANCH: master
   TZ: Europe/Madrid
 
@@ -39,26 +39,25 @@ jobs:
     - name: Update and Install feeds
       run: |
         cd handsomemod
+        # Удаляем нерабочий локальный репозиторий разработчика
+        sed -i '/192.168.21.206/d' feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Inject UFI103S DTS
       run: |
-        # Путь куда кладем DTS
         DTS_PATH="handsomemod/target/linux/msm89xx/files/arch/arm64/boot/dts/qcom"
         mkdir -p $DTS_PATH
         if [ -f "ufi103s.dts" ]; then
           cp -f "ufi103s.dts" "$DTS_PATH/msm8916-uz801.dts"
           echo "✅ DTS файл успешно внедрен"
         else
-          echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: ufi103s.dts не найден в корне репозитория!"
-          # Не выходим с ошибкой, если ты хочешь использовать стандартный
+          echo "⚠️ ПРЕДУПРЕЖДЕНИЕ: ufi103s.dts не найден!"
         fi
 
     - name: Load custom configuration
       run: |
         cd handsomemod
-        # Проверяем наличие .config в корне репозитория
         if [ -f "../.config" ]; then
           cp -f "../.config" .config
           echo "✅ Использован твой .config"
@@ -67,18 +66,16 @@ jobs:
           touch .config
         fi
         
-        # Удаляем старые таргеты, если они были в конфиге
+        # Очистка и принудительная установка таргета
         sed -i '/CONFIG_TARGET_ath79/d' .config || true
         sed -i '/CONFIG_TARGET_msm89xx/d' .config || true
         
-        # Принудительно выставляем таргет для UFI103S
         {
           echo "CONFIG_TARGET_msm89xx=y"
           echo "CONFIG_TARGET_msm89xx_msm8916=y"
           echo "CONFIG_TARGET_msm89xx_msm8916_DEVICE_yiming-uz801v3=y"
         } >> .config
         
-        # Генерируем финальный конфиг со всеми зависимостями
         make defconfig
 
     - name: Download package
@@ -92,7 +89,6 @@ jobs:
       run: |
         cd handsomemod
         echo -e "$(nproc) thread compile"
-        # Сборка. Если упадет - покажет лог (V=s)
         make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -101,7 +97,6 @@ jobs:
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         mkdir -p firmware_bin
-        # Ищем готовые файлы в директории msm89xx
         find handsomemod/bin/targets/msm89xx/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" -o -name "*.gz" \) -exec cp {} firmware_bin/ \; || true
         echo "FIRMWARE=$PWD/firmware_bin" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
@@ -112,3 +107,4 @@ jobs:
       with:
         name: HandsomeMod_UFI103S_ARM64
         path: ${{ env.FIRMWARE }}/*
+        
