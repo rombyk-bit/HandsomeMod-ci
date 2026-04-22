@@ -6,38 +6,29 @@
 # Blog: https://p3terx.com
 #=================================================
 
-name: Build HandsomeMod
+
+name: Build HandsomeMod UFI103S
 
 on:
-  repository_dispatch:
-    types: [helloworld]
-  release:
-    types: [published]
+  workflow_dispatch:
   push:
     branches:
       - master
     paths:
       - '.config'
-  watch:
-    types: [started]
 
 env:
   REPO_URL: https://github.com/HandsomeMod/HandsomeMod.git
   REPO_BRANCH: master
-  FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: .config
-  SSH_ACTIONS: true
-  UPLOAD_BIN_DIR: false
   UPLOAD_FIRMWARE: true
-  TZ: Asia/Shanghai
+  TZ: Europe/Madrid
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
-    # Обновлено до v4
     - name: Checkout
       uses: actions/checkout@v4
 
@@ -53,25 +44,39 @@ jobs:
         sudo timedatectl set-timezone "$TZ"
  
     - name: Clone source code
-      run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH handsomemod
+      run: git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} handsomemod
       
-    - name: Update feeds
-      run: cd handsomemod && ./scripts/feeds update -a
-
-    - name: Install feeds
-      run: cd handsomemod && ./scripts/feeds install -a 
-
-    - name: SSH connection to Actions
-      uses: P3TERX/ssh2actions@main
-      if: always()
-
-    - name: Download package
-      id: package
+    - name: Update and Install feeds
       run: |
         cd handsomemod
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Inject UFI103S DTS
+      run: |
+        cd handsomemod
+        # Создаем структуру папок внутри склонированного репозитория
+        mkdir -p target/linux/msm89xx/files/arch/arm64/boot/dts/qcom/
+        if [ -f "../ufi103s.dts" ]; then
+          # Подменяем стандартный файл uz801 твоим ufi103s.dts
+          cp ../ufi103s.dts target/linux/msm89xx/files/arch/arm64/boot/dts/qcom/msm8916-uz801.dts
+          echo "DTS injected successfully"
+        else
+          echo "Error: ufi103s.dts not found in repository root!"
+          exit 1
+        fi
+
+    - name: Load custom configuration
+      run: |
+        # Копируем твой .config в папку сборки
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE handsomemod/.config
+        cd handsomemod
         make defconfig
+
+    - name: Download package
+      run: |
+        cd handsomemod
         make download -j8
-        find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
     - name: Compile the firmware
@@ -79,31 +84,23 @@ jobs:
       run: |
         cd handsomemod
         echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 || make -j1 V=s
+        make -j$(nproc) || make -j1 V=s
         echo "status=success" >> $GITHUB_OUTPUT
-
-    # Обновлено до v4
-    - name: Upload bin directory
-      uses: actions/upload-artifact@v4
-      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
-      with:
-        name: HandsomeMod_bin
-        path: handsomemod/bin
 
     - name: Organize files
       id: organize
-      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
-        cd handsomemod/bin/targets/*/*
-        rm -rf packages
-        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+        mkdir -p firmware_bin
+        # Собираем все прошивки из папки bin
+        find handsomemod/bin/targets/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" \) -exec cp {} firmware_bin/ \;
+        echo "FIRMWARE=$PWD/firmware_bin" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
-    # Обновлено до v4
-    - name: Upload firmware directory
+    - name: Upload firmware
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: HandsomeMod_firmware
-        path: ${{ env.FIRMWARE }}
+        name: HandsomeMod_ufi103s_firmware
+        path: ${{ env.FIRMWARE }}/*
         
