@@ -54,6 +54,15 @@ jobs:
           echo "✅ DTS внедрен"
         fi
 
+    - name: Fix M4 Compilation
+      run: |
+        cd handsomemod
+        # Исправляем ошибку c-stack в m4 для совместимости с новым glibc
+        sed -i 's/IO_ftrylockfile/IO_stdin_used/g' $(find . -name libio.h) || true
+        # Основной фикс для m4-1.4.18
+        mkdir -p tools/m4/patches
+        curl -SL https://githubusercontent.com -o tools/m4/patches/100-fix-glibc-2.34.patch || true
+
     - name: Load custom configuration
       run: |
         cd handsomemod
@@ -66,10 +75,8 @@ jobs:
           echo "CONFIG_TARGET_msm89xx_msm8916_DEVICE_yiming-uz801v3=y"
         } >> .config
         
-        # ХАК: Принудительно создаем файлы успешной проверки зависимостей
         mkdir -p staging_dir/host
         touch staging_dir/host/.prereq-build
-        
         make defconfig FORCE=1
 
     - name: Download package
@@ -82,11 +89,12 @@ jobs:
       id: compile
       run: |
         cd handsomemod
-        # Еще раз убеждаемся, что флаг прохода создан перед компиляцией
         mkdir -p staging_dir/host
         touch staging_dir/host/.prereq-build
         
         echo -e "$(nproc) thread compile"
+        # Собираем сначала инструменты отдельно, чтобы видеть ошибки
+        make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
         make -j$(nproc) FORCE=1 || make -j1 V=s FORCE=1
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -105,3 +113,4 @@ jobs:
       with:
         name: HandsomeMod_UFI103S_ARM64
         path: ${{ env.FIRMWARE }}/*
+        
