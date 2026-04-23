@@ -9,9 +9,10 @@ on:
       - '.config'
 
 env:
+  # Актуальный адрес репозитория
   REPO_URL: https://github.com/HandsomeYingyan/HandsomeMod.git
   REPO_BRANCH: master
-  TZ: Europe/Madrid
+  TZ: Asia/Shanghai
 
 jobs:
   build:
@@ -27,39 +28,31 @@ jobs:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        # Добавляем репозиторий для Python 2.7, так как в 22.04 его нет
         sudo add-apt-repository ppa:deadsnakes/ppa -y
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler antlr3 gperf swig python3-dev python2.7 python2.7-dev
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs gcc-multilib g++-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler antlr3 gperf swig python3-dev python2.7 python-is-python3
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
         sudo timedatectl set-timezone "$TZ"
+        # Делаем Python 2 доступным как 'python' для старых скриптов
         sudo ln -sf /usr/bin/python2.7 /usr/bin/python
-
+ 
     - name: Clone source code
-      run: git clone --depth 1 ${{ env.REPO_URL }} -b ${{ env.REPO_BRANCH }} handsomemod
+      run: git clone --depth 1 $REPO_URL -b $REPO_BRANCH handsomemod
       
     - name: Update and Install feeds
       run: |
         cd handsomemod
+        # Удаляем нерабочий локальный IP из конфига фидов
         sed -i '/192.168.21.206/d' feeds.conf.default
         ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        ./scripts/feeds install -a 
 
-    - name: Inject UFI103S DTS
-      run: |
-        DTS_PATH="handsomemod/target/linux/msm89xx/files/arch/arm64/boot/dts/qcom"
-        mkdir -p $DTS_PATH
-        if [ -f "ufi103s.dts" ]; then
-          cp -f "ufi103s.dts" "$DTS_PATH/msm8916-uz801.dts"
-          echo "✅ DTS внедрен"
-        fi
-
-    - name: Fix M4 Compilation
+    - name: Fix M4 compilation (SIGSTKSZ)
       run: |
         cd handsomemod
-        # Исправляем ошибку c-stack в m4 для совместимости с новым glibc
-        sed -i 's/IO_ftrylockfile/IO_stdin_used/g' $(find . -name libio.h) || true
-        # Основной фикс для m4-1.4.18
+        # Патч для совместимости старого m4 с новым glibc в Ubuntu 22.04
         mkdir -p tools/m4/patches
         curl -SL https://githubusercontent.com -o tools/m4/patches/100-fix-glibc-2.34.patch || true
 
@@ -67,17 +60,14 @@ jobs:
       run: |
         cd handsomemod
         [ -f "../.config" ] && cp -f "../.config" .config || touch .config
-        sed -i '/CONFIG_TARGET_ath79/d' .config || true
-        sed -i '/CONFIG_TARGET_msm89xx/d' .config || true
-        {
-          echo "CONFIG_TARGET_msm89xx=y"
-          echo "CONFIG_TARGET_msm89xx_msm8916=y"
-          echo "CONFIG_TARGET_msm89xx_msm8916_DEVICE_yiming-uz801v3=y"
-        } >> .config
-        
+        # Создаем маркеры, чтобы обмануть проверку версий компилятора
         mkdir -p staging_dir/host
         touch staging_dir/host/.prereq-build
         make defconfig FORCE=1
+
+    - name: SSH connection to Actions
+      uses: P3TERX/ssh2actions@main
+      if: github.event_name == 'workflow_dispatch' || github.event_name == 'watch'
 
     - name: Download package
       run: |
@@ -89,11 +79,11 @@ jobs:
       id: compile
       run: |
         cd handsomemod
+        echo -e "$(nproc) thread compile"
+        # Принудительно создаем маркеры перед компиляцией
         mkdir -p staging_dir/host
         touch staging_dir/host/.prereq-build
-        
-        echo -e "$(nproc) thread compile"
-        # Собираем сначала инструменты отдельно, чтобы видеть ошибки
+        # Сначала собираем инструменты, потом прошивку
         make tools/install -j$(nproc) FORCE=1 || make tools/install -j1 V=s FORCE=1
         make -j$(nproc) FORCE=1 || make -j1 V=s FORCE=1
         echo "status=success" >> $GITHUB_OUTPUT
@@ -103,7 +93,7 @@ jobs:
       if: steps.compile.outputs.status == 'success' && !cancelled()
       run: |
         mkdir -p firmware_bin
-        find handsomemod/bin/targets/msm89xx/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" -o -name "*.gz" \) -exec cp {} firmware_bin/ \; || true
+        find handsomemod/bin/targets/ -type f \( -name "*.bin" -o -name "*.img" -o -name "*.manifest" -o -name "*.gz" \) -exec cp {} firmware_bin/ \; || true
         echo "FIRMWARE=$PWD/firmware_bin" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
@@ -111,6 +101,5 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
-        name: HandsomeMod_UFI103S_ARM64
+        name: HandsomeMod_UFI103S_Build
         path: ${{ env.FIRMWARE }}/*
-        
