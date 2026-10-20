@@ -1,0 +1,97 @@
+name: Сборка crDroid для castor_windy
+
+on:
+  workflow_dispatch: # Позволяет запускать сборку вручную через сайт GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    permissions:
+      contents: write
+
+    steps:
+    - name: Проверка репозитория
+      uses: actions/checkout@v4
+
+    - name: Максимальная очистка диска VM
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        sudo rm -rf /usr/libexec/docker/cli-plugins/docker-compose
+        docker rmi $(docker images -q) || true
+        sudo apt-get clean
+        df -h
+
+    - name: Установка необходимых пакетов и инструментов
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3
+        mkdir -p ~/bin
+        curl https://googleapis.com > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
+
+    - name: Настройка Git
+      run: |
+        git config --global user.name "Сборщик Ромов"
+        git config --global user.email "rom-builder@example.com"
+
+    - name: Инициализация репозитория crDroid 7.x (Android 11)
+      run: |
+        mkdir ~/crdroid
+        cd ~/crdroid
+        repo init -u https://github.com -b 11.0 --git-lfs --depth=1
+
+    - name: Создание локального манифеста для castor_windy
+      run: |
+        mkdir -p ~/crdroid/.repo/local_manifests
+        cat <<EOF > ~/crdroid/.repo/local_manifests/castor_windy.xml
+        <?xml version="1.0" encoding="UTF-8"?>
+        <manifest>
+          <project name="LineageOS/android_device_sony_castor_windy" path="device/sony/castor_windy" remote="github" revision="lineage-18.1" />
+          <project name="LineageOS/android_device_sony_shinano-common" path="device/sony/shinano-common" remote="github" revision="lineage-18.1" />
+          <project name="LineageOS/android_device_sony_msm8974-common" path="device/sony/msm8974-common" remote="github" revision="lineage-18.1" />
+          <project name="LineageOS/android_device_sony_common" path="device/sony/common" remote="github" revision="lineage-18.1" />
+          <project name="LineageOS/android_kernel_sony_msm8974" path="kernel/sony/msm8974" remote="github" revision="lineage-18.1" />
+          <project name="TheMuppets/proprietary_vendor_sony" path="vendor/sony" remote="github" revision="lineage-18.1" />
+        </manifest>
+        EOF
+
+    - name: Синхронизация исходного кода (Repo Sync)
+      run: |
+        cd ~/crdroid
+        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+
+    - name: Адаптация исходников LineageOS под crDroid
+      run: |
+        cd ~/crdroid/device/sony/castor_windy
+        # Переименовываем основной конфигурационный файл
+        mv lineage_castor_windy.mk crdroid_castor_windy.mk
+        # Меняем упоминания lineage на crdroid внутри файлов устройства
+        sed -i 's/lineage_castor_windy/crdroid_castor_windy/g' AndroidProducts.mk
+        sed -i 's/lineage_/crdroid_/g' crdroid_castor_windy.mk
+        # Подключаем общие настройки crDroid вместо LineageOS
+        sed -i 's|vendor/crdroid/config/common_full_tablet_wifionly.mk|vendor/crdroid/config/common.mk|g' crdroid_castor_windy.mk
+        
+        # Исправление совместимости с shinano-common, если потребуется
+        cd ~/crdroid/device/sony/shinano-common
+        sed -i 's/lineage\./crdroid./g' *.mk || true
+
+    - name: Запуск компиляции
+      run: |
+        cd ~/crdroid
+        export CCACHE_EXEC=/usr/bin/ccache
+        export USE_CCACHE=1
+        ccache -M 20G
+        . build/envsetup.sh
+        lunch crdroid_castor_windy-userdebug
+        mka bacon -j$(nproc --all)
+
+    - name: Выгрузка готовой прошивки
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: crDroid-castor_windy
+        path: ~/crdroid/out/target/product/castor_windy/crDroid*.zip
